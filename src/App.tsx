@@ -12,6 +12,30 @@ interface Wallet {
 	chain: EvmChain,
 }
 
+interface SerializedNative {
+	chainId: string,
+	name?: string,
+	symbol?: string,
+	balance: number,
+	price: number,
+}
+
+interface SerializedFT {
+	chainId?: string,
+	tokenAddress?: string,
+	name?: string,
+	symbol?: string,
+	balance: number,
+	price: number,
+}
+
+interface Snapshot {
+	timestamp: number,
+	natives: SerializedNative[],
+	fts: SerializedFT[],
+	portfolioValue: number,
+}
+
 const CHAINS = [
 	EvmChain.ETHEREUM,
 	EvmChain.POLYGON,
@@ -33,8 +57,11 @@ const WRAPPED_CONTRACTS = [
 const storedAccounts: string[] = JSON.parse(localStorage.getItem("accounts") || "[]");
 const storedRawChains: string[] = JSON.parse(localStorage.getItem("chains") || "[\"0x1\"]");
 const storedChains = CHAINS.filter(c => storedRawChains.some(stored => stored === c.hex));
+const storedSnapshots: Snapshot[] = JSON.parse(localStorage.getItem("snapshots") || "[]");
 
 function App() {
+	const [snapshots, setSnapshots] = React.useState<Snapshot[]>(storedSnapshots);
+	const [selectedSnapshot, setSelectedSnapshot] = React.useState<number>(-1);
 	const [accounts, setAccounts] = React.useState<string[]>(storedAccounts);
 	const [newAccount, setNewAccount] = React.useState<string>("");
 	const [chains, setChains] = React.useState<EvmChain[]>(storedChains);
@@ -55,7 +82,7 @@ function App() {
 				chain: wallet.chain,
 			});
 
-			newNatives.set(wallet.chain.hex, (newNatives.has(wallet.chain.hex) ? newNatives.get(wallet.chain.hex)! : 0) + Number(response.result.balance.value) / Math.pow(10, 18));
+			newNatives.set(wallet.chain.hex, (newNatives.has(wallet.chain.hex) ? newNatives.get(wallet.chain.hex)! : 0) + Number(response.result.balance.value) / Math.pow(10, wallet.chain.currency?.decimals ?? 18));
 		}
 
 		setNatives(newNatives);
@@ -158,8 +185,9 @@ function App() {
 	const addAccount = (e: React.KeyboardEvent<HTMLInputElement>) => {
 		if(e.key === "Enter" && !accounts.some(a => a === newAccount)) {
 			setAccounts([...accounts, newAccount]);
+			setNewAccount("");
+			e.preventDefault();
 		}
-		e.preventDefault();
 	}
 
 	const removeAccount = (account: string) => {
@@ -268,6 +296,41 @@ function App() {
 		return data;
 	}
 
+	const serializeNative = (chains: EvmChain[]): SerializedNative[] => chains.map(c => ({
+		chainId: c.hex,
+		name: c.currency?.name,
+		symbol: c.currency?.symbol,
+		balance: natives.get(c.hex) ?? 0,
+		price: getNativePrice(c.hex),
+	}));
+
+	const serializeFTs = (fts: Erc20Value[]): SerializedFT[] => fts.map(t => ({
+		chainId: t.token?.chain.hex,
+		tokenAddress: t.token?.contractAddress.lowercase,
+		name: t.token?.name,
+		symbol: t.token?.symbol,
+		balance: getAmount(t),
+		price: getPrice(t.token),
+	}));
+
+	const selectSnapshot = (e: React.ChangeEvent<HTMLSelectElement>) => {
+		setSelectedSnapshot(parseInt(e.currentTarget.value));
+		e.preventDefault();
+	}
+
+	const snapshot = (e: React.MouseEvent<HTMLButtonElement>) => {
+		const newSnapshots: Snapshot[] = JSON.parse(localStorage.getItem("snapshots") || "[]");
+		newSnapshots.push({
+			timestamp: new Date().getTime(),
+			natives: serializeNative(chains),
+			fts: serializeFTs(fts),
+			portfolioValue: chains.reduce((p, c) => p + ((natives.get(c.hex) ?? 0) * getNativePrice(c.hex)), 0) + fts.reduce((p, c) => p + (getAmount(c) * getPrice(c.token)), 0),
+		});
+		localStorage.setItem("snapshots", JSON.stringify(newSnapshots));
+		setSnapshots(newSnapshots);
+		e.preventDefault();
+	}
+
 	return (
 		<div id="app">
 			<h1>Crypto Portfolio Aggregator - by Lucas Yamamoto</h1>
@@ -291,9 +354,16 @@ function App() {
 					</div>)}
 				</div>
 			</div>
+			<div id="snapshot-select">
+				Select snapshot:
+				<select onChange={selectSnapshot}>
+					{snapshots.map((snapshot, i) => <option key={`snapshot-${i}`} selected={selectedSnapshot === i} value={i}>{((date: Date) => `${date.getMonth()+1}/${date.getDate()}/${date.getFullYear()} ${date.getHours()}:${date.getMinutes()}`)(new Date(snapshot.timestamp))}</option>)}
+					<option selected={selectedSnapshot === -1} value={-1}>Current</option>
+				</select>
+			</div>
 			<div id="assets">
 				<div id="assets-header">
-					<h2>My Assets <span className="light">{Intl.NumberFormat("en-us", { style: "currency", currency: "USD" }).format(fts.reduce((p, c) => p + (getAmount(c) * getPrice(c.token)), 0))}</span></h2>
+					<h2>My Assets <span className="light">{Intl.NumberFormat("en-us", { style: "currency", currency: "USD" }).format(chains.reduce((p, c) => p + ((natives.get(c.hex) ?? 0) * getNativePrice(c.hex)), 0) + fts.reduce((p, c) => p + (getAmount(c) * getPrice(c.token)), 0))}</span></h2>
 					<div id="asset-hide"><input key={`hide-zeros-${hideZeros ? "checked" : "unckecked"}`} id="hide-zeros" type="checkbox" checked={hideZeros} defaultChecked={true} onClick={toggleHideZeros} /> <label htmlFor="hide-zeros">Hide unworthy</label></div>
 				</div>
 				<div id="assets-list">
@@ -304,34 +374,35 @@ function App() {
 						<div className="asset-header">Value</div>
 					</>
 					{chains.length + fts.length === 0 && <div>No asset found</div>}
-					{chains.map((chain, i) => (
-						(!hideZeros || getNativePrice(chain.hex) * (natives.get(chain.hex) ?? 0) > 0) &&
+					{(selectedSnapshot === -1 ? serializeNative(chains) : snapshots[selectedSnapshot].natives).map((native, i) => (
+						(!hideZeros || native.price * native.balance > 0) &&
 						<React.Fragment key={`asset-native-${i}`}>
-							<div className="asset-token" title={chain.hex}>
-								<div className="asset-icon"><img src={`/images/chain-icons/${parseInt(chain.hex, 16)}.webp`} onError={(e) => { e.currentTarget.src = "/images/token-icons/unknown.png"; }} /></div>
-								<div className="asset-name">{chain.currency?.name}</div>
-								<div className="asset-symbol">{chain.currency?.symbol}</div>
+							<div className="asset-token" title={native.chainId}>
+								<div className="asset-icon"><img src={`/images/chain-icons/${parseInt(native.chainId, 16)}.webp`} onError={(e) => { e.currentTarget.src = "/images/token-icons/unknown.png"; }} /></div>
+								<div className="asset-name">{native.name}</div>
+								<div className="asset-symbol">{native.symbol}</div>
 							</div>
-							<div className="asset-price">{Intl.NumberFormat("en-us", { style: "currency", currency: "USD" }).format(getNativePrice(chain.hex))}</div>
-							<div className="asset-amount">{normalizeAmount(natives.get(chain.hex) ?? 0)}</div>
-							<div className="asset-value">{Intl.NumberFormat("en-us", { style: "currency", currency: "USD" }).format((natives.get(chain.hex) ?? 0) * getNativePrice(chain.hex))}</div>
+							<div className="asset-price">{Intl.NumberFormat("en-us", { style: "currency", currency: "USD" }).format(native.price)}</div>
+							<div className="asset-amount">{normalizeAmount(native.balance ?? 0)}</div>
+							<div className="asset-value">{Intl.NumberFormat("en-us", { style: "currency", currency: "USD" }).format(native.balance * native.price)}</div>
 						</React.Fragment>
 					))}
-					{fts.map((item, i) => (
-						(!hideZeros || getPrice(item.token) * getAmount(item) > 0) &&
+					{(selectedSnapshot === -1 ? serializeFTs(fts) : snapshots[selectedSnapshot].fts).map((token, i) => (
+						(!hideZeros || token.price * token.balance > 0) &&
 						<React.Fragment key={`asset-${i}`}>
-							<div className="asset-token" title={item.token?.contractAddress.lowercase}>
-								<div className="asset-icon"><img src={`/images/token-icons/${item.token?.contractAddress.lowercase ?? "unknown"}.png`} onError={(e) => { e.currentTarget.src = "/images/token-icons/unknown.png"; }} /></div>
-								<div className="asset-name">{item.token?.name}</div>
-								<div className="asset-symbol">{item.token?.symbol}</div>
+							<div className="asset-token" title={token.tokenAddress}>
+								<div className="asset-icon"><img src={`/images/token-icons/${token.tokenAddress ?? "unknown"}.png`} onError={(e) => { e.currentTarget.src = "/images/token-icons/unknown.png"; }} /></div>
+								<div className="asset-name">{token.name}</div>
+								<div className="asset-symbol">{token.symbol}</div>
 							</div>
-							<div className="asset-price">{Intl.NumberFormat("en-us", { style: "currency", currency: "USD" }).format(getPrice(item.token))}</div>
-							<div className="asset-amount">{normalizeAmount(getAmount(item))}</div>
-							<div className="asset-value">{Intl.NumberFormat("en-us", { style: "currency", currency: "USD" }).format(getAmount(item) * getPrice(item.token))}</div>
+							<div className="asset-price">{Intl.NumberFormat("en-us", { style: "currency", currency: "USD" }).format(token.price)}</div>
+							<div className="asset-amount">{normalizeAmount(token.balance)}</div>
+							<div className="asset-value">{Intl.NumberFormat("en-us", { style: "currency", currency: "USD" }).format(token.balance * token.price)}</div>
 						</React.Fragment>
 					))}
 				</div>
 			</div>
+			<div id="snapshot-button"><button onClick={snapshot}>Save Snapshot</button></div>
 	  	</div>
 	);
 }

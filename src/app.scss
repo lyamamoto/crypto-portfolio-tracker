@@ -40,6 +40,7 @@
 				border: 0px;
 				border-radius: 0.5em;
 				background-color: rgba(#cef, 0.25);
+				color: #cef;
 			}
 		}
 
@@ -74,6 +75,21 @@
 					height: 16px;
 				}
 			}
+		}
+	}
+
+	#snapshot-select {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 12px;
+		width: 100%;
+
+		select {
+			background-color: #012;
+			color: #cef;
+			border: 1px;
+			border-radius: 0.5em;
 		}
 	}
 
@@ -163,42 +179,19 @@
 		}
 	}
 
-	#nfts {
+	#snapshot-button {
 		display: flex;
-		flex-direction: column;
+		justify-content: center;
 		width: 100%;
-		padding: 0.8em;
-		border-radius: 0.8em;
-		background: rgba(#cef, 0.25);
 
-		h2 { margin: 0px; }
-
-		#nft-list {
+		button {
 			display: flex;
-			flex-wrap: wrap;
-			justify-content: space-evenly;
-			gap: 16px;
-			width: 100%;
-			padding: 16px 0px;
-
-			.nft {
-				display: flex;
-				flex-direction: column;
-				width: 280px;
-				padding: 0.8em;
-				border-radius: 0.8em;
-				background: rgba(#cef, 0.25);
-
-				h3 { margin: 0px; }
-				small { font-size: 0.7em; }
-
-				.nft-token-id {
-					max-width: 200px;
-					overflow: hidden;
-					text-overflow: ellipsis;
-					white-space: nowrap;
-				}
-			}
+			align-items: center;
+			justify-content: center;
+			padding: 16px 24px;
+			border-radius: 0.5em;
+			font-size: 14px;
+			font-weight: bold;
 		}
 	}
 }
