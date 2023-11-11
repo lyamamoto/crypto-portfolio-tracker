@@ -5,6 +5,7 @@ import { Doughnut } from 'react-chartjs-2';
 import Moralis from 'moralis';
 import { EvmChain, Erc20Value, Erc20Token } from '@moralisweb3/evm-utils';
 
+// We are using Chart.js to display portfolio doughnut chart, register some features for the chart
 ChartJS.register(ArcElement, Tooltip);
 
 interface Wallet {
@@ -36,6 +37,7 @@ interface Snapshot {
 	portfolioValue: number,
 }
 
+// List of available networks
 const CHAINS = [
 	EvmChain.ETHEREUM,
 	EvmChain.POLYGON,
@@ -45,6 +47,8 @@ const CHAINS = [
 	EvmChain.AVALANCHE,
 ];
 
+// Price native for native tokens will come from wrapped ERC-20 tokens in Ethereum network
+// List of wrapped ERC-20 token contracts addresses
 const WRAPPED_CONTRACTS = [
 	"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", // wETH
 	"0x7c9f4C87d911613Fe9ca58b579f737911AAD2D43", // wMATIC
@@ -54,25 +58,30 @@ const WRAPPED_CONTRACTS = [
 	"0x85f138bfEE4ef8e540890CFb48F620571d67Eda3", // wAVAX
 ];
 
+// We will use localStorage to keep user data so that we ensure privacy
+// Here we load all stored data: accounts (wallet addresses), chains (selected networks) and snapshots (portfolio saved in given timestamps)
 const storedAccounts: string[] = JSON.parse(localStorage.getItem("accounts") || "[]");
 const storedRawChains: string[] = JSON.parse(localStorage.getItem("chains") || "[\"0x1\"]");
 const storedChains = CHAINS.filter(c => storedRawChains.some(stored => stored === c.hex));
 const storedSnapshots: Snapshot[] = JSON.parse(localStorage.getItem("snapshots") || "[]");
 
 function App() {
-	const [snapshots, setSnapshots] = React.useState<Snapshot[]>(storedSnapshots);
-	const [selectedSnapshot, setSelectedSnapshot] = React.useState<number>(-1);
-	const [accounts, setAccounts] = React.useState<string[]>(storedAccounts);
-	const [newAccount, setNewAccount] = React.useState<string>("");
-	const [chains, setChains] = React.useState<EvmChain[]>(storedChains);
-	const [natives, setNatives] = React.useState<Map<string, number>>(new Map());
-	const [fts, setFTs] = React.useState<Erc20Value[]>([]);
-	const [nativePrices, setNativePrices] = React.useState<Map<string, number>>(new Map());
-	const [prices, setPrices] = React.useState<Map<string, Map<string, number>>>(new Map());
-	const [hideZeros, setHideZeros] = React.useState<boolean>(true);
 
-	const wallets = accounts.map(account => chains.map(chain => ({ address: account, chain } as Wallet))).flat();
+	// App state variables
+	const [snapshots, setSnapshots] = React.useState<Snapshot[]>(storedSnapshots); // Portfolio snapshots
+	const [selectedSnapshot, setSelectedSnapshot] = React.useState<number>(-1); // Selected portfolio snapshot index to display (-1 for current)
+	const [accounts, setAccounts] = React.useState<string[]>(storedAccounts); // Accounts: app will retrieve all assets held by these accounts
+	const [newAccount, setNewAccount] = React.useState<string>(""); // Input variable user enter to start tracking new account
+	const [chains, setChains] = React.useState<EvmChain[]>(storedChains); // Selected chains: app will query data from this selected networks
+	const [natives, setNatives] = React.useState<Map<string, number>>(new Map()); // List of native token balances owned by the accounts
+	const [fts, setFTs] = React.useState<Erc20Value[]>([]); // List of ERC-20 token balances owned by the accounts (FT stands for fungible token)
+	const [nativePrices, setNativePrices] = React.useState<Map<string, number>>(new Map()); // List of native token prices owned by the accounts
+	const [prices, setPrices] = React.useState<Map<string, Map<string, number>>>(new Map()); // List of ERC-20 token prices owned by the accounts
+	const [hideZeros, setHideZeros] = React.useState<boolean>(true); // Flag to hide unworthy tokens: do not display garbage airdrops
 
+	const wallets = accounts.map(account => chains.map(chain => ({ address: account, chain } as Wallet))).flat(); // Cross accounts and selected networks to form a list of wallets (e.g: account X in network Y)
+
+	// Request native token balance for each wallet in the list using Moralis
 	const loadNatives = async () => {
 		const newNatives: Map<string, number> = new Map();
 
@@ -88,6 +97,7 @@ function App() {
 		setNatives(newNatives);
 	}
 
+	// Request ERC-20 token balance for each wallet in the list using Moralis
 	const loadFTs = async () => {
 		const newFTs: Erc20Value[] = [];
 
@@ -103,6 +113,7 @@ function App() {
 		setFTs(newFTs);
 	}
 
+	// Request price for native token (wrapped ERC-20 token actually) in the list using Moralis
 	const loadNativePrices = async () => {
 		const newNativePrices = new Map<string, number>();
 
@@ -126,6 +137,7 @@ function App() {
 		setNativePrices(newNativePrices);
 	}
 
+	// Request price for ERC-20 token in the list using Moralis
 	const loadPrices = async () => {
 		const newPrices = new Map<string, Map<string, number>>();
 
@@ -158,30 +170,36 @@ function App() {
 		setPrices(newPrices);
 	}
 
+	// Loads native and ERC-20 tokens
 	const loadAll = () => {
 		loadNatives();
 		loadFTs();
 	}
 
+	// Save changes in accounts (account added or removed)
 	const storeAccounts = () => {
 		localStorage.setItem("accounts", JSON.stringify(accounts));
 	}
 
+	// Save changes in chains (network selected/unselected)
 	const storeChains = () => {
 		localStorage.setItem("chains", JSON.stringify(chains.map(c => c.hex)));
 	}
 
+	// Configure react effects for loading tokens and prices and save changes on state variable changes
 	React.useEffect(() => { loadNativePrices(); }, [natives]);
 	React.useEffect(() => { loadPrices(); }, [fts]);
 	React.useEffect(loadAll, [accounts, chains]);
 	React.useEffect(storeAccounts, [accounts]);
 	React.useEffect(storeChains, [chains]);
 
+	// Change input account state variable
 	const handleNewAccountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 		setNewAccount(e.currentTarget.value);
 		e.preventDefault();
 	}
 
+	// Add input account to the list
 	const addAccount = (e: React.KeyboardEvent<HTMLInputElement>) => {
 		if(e.key === "Enter" && !accounts.some(a => a === newAccount)) {
 			setAccounts([...accounts, newAccount]);
@@ -190,6 +208,7 @@ function App() {
 		}
 	}
 
+	// Remove account from the list
 	const removeAccount = (account: string) => {
 		return (e: React.MouseEvent<HTMLButtonElement>) => {
 			if(accounts.some(a => a === account)) {
@@ -199,6 +218,7 @@ function App() {
 		}
 	}
 
+	// Select/unselect chain
 	const toggleChain = (chain: EvmChain) => {
 		return (e: React.MouseEvent<HTMLDivElement>) => {
 			let newChains;
@@ -212,23 +232,28 @@ function App() {
 		}
 	}
 
+	// Hide/unhide unworthy tokens
 	const toggleHideZeros = (e: React.FormEvent<HTMLInputElement>) => {
 		setHideZeros(old => !old);
 		e.preventDefault();
 	}
 
+	// Auxiliary getter for native price
 	const getNativePrice = (chainId: string) => {
 		return nativePrices.get(chainId) ?? 0;
 	}
 
+	// Auxiliary getter for ERC-20 price
 	const getPrice = (token: Erc20Token | null) => {
 		return prices.get(token?.chain.hex ?? "0x-1")?.get(token?.contractAddress.lowercase ?? "") ?? 0;
 	}
 
+	// Auxiliary getter for ERC-20 balance
 	const getAmount = (token: Erc20Value) => {
 		return Number(token.amount) / Math.pow(10, token.decimals);
 	}
 
+	// Normalize amount for better human-readable display (1300 -> 1.3k, 5600000 -> 5.6M)
 	const normalizeAmount = (amount: number) => {
 		let i = 0;
 		while(amount >= 1e3) {
@@ -239,10 +264,24 @@ function App() {
 		return `${amount.toFixed(2)}${["", "k", "M", "B", "T", "q", "Q"][i] ?? "?"}`;
 	}
 
+	// Parse native token and ERC-20 token data (balances and prices) to chart data format
 	const generateChartData = (): ChartData<"doughnut", number[], unknown> => {
 		let portfolioValue = 0;
 
+		// Use a Heap data structure to sort max portfolio item value
 		const tokenHeap = new TokenHeap();
+
+		// extract native token data
+		for(const native of serializeNative(chains)) {
+			const token = {
+				symbol: native.symbol ?? "Unknown",
+				value: native.balance * native.price,
+			};
+			tokenHeap.add(token);
+			portfolioValue += token.value;
+		}
+
+		// extract ERC-20 token data
 		for(const ft of fts) {
 			const token = {
 				symbol: ft.token?.symbol ?? "Unknown",
@@ -252,6 +291,7 @@ function App() {
 			portfolioValue += token.value;
 		}
 
+		// Pop top 5 portfolio items (in value)
 		const labels = [];
 		const values = [];
 		for(let i = 0; i < 5 && !tokenHeap.empty(); i++) {
@@ -262,11 +302,13 @@ function App() {
 			values.push((token?.value ?? 0) / portfolioValue);
 		}
 
+		// Aggregate other items in "Others"
 		if(!tokenHeap.empty()) {
 			labels.push("Others");
 			values.push(1 - values.reduce((p, c) => p + c, 0));
 		}
 
+		// Form chart data
 		const data = {
 			labels: labels,
 			datasets: [
@@ -296,6 +338,7 @@ function App() {
 		return data;
 	}
 
+	// Standarize native token data
 	const serializeNative = (chains: EvmChain[]): SerializedNative[] => chains.map(c => ({
 		chainId: c.hex,
 		name: c.currency?.name,
@@ -304,6 +347,7 @@ function App() {
 		price: getNativePrice(c.hex),
 	}));
 
+	// Standarize ERC-20 token data
 	const serializeFTs = (fts: Erc20Value[]): SerializedFT[] => fts.map(t => ({
 		chainId: t.token?.chain.hex,
 		tokenAddress: t.token?.contractAddress.lowercase,
@@ -313,11 +357,13 @@ function App() {
 		price: getPrice(t.token),
 	}));
 
+	// Change snapshot to the one user selected
 	const selectSnapshot = (e: React.ChangeEvent<HTMLSelectElement>) => {
 		setSelectedSnapshot(parseInt(e.currentTarget.value));
 		e.preventDefault();
 	}
 
+	// Take a snapshot and save into user's localStorage
 	const snapshot = (e: React.MouseEvent<HTMLButtonElement>) => {
 		const newSnapshots: Snapshot[] = JSON.parse(localStorage.getItem("snapshots") || "[]");
 		newSnapshots.push({
@@ -407,6 +453,7 @@ function App() {
 	);
 }
 
+// Heap data structure used to get top 5 portfolio items
 class TokenHeap {
 	private items: { symbol: string, value: number }[] = [];
 
